@@ -1,10 +1,11 @@
 import pptxgen from "pptxgenjs";
-import { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType, BorderStyle } from "docx";
+import { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType } from "docx";
 import saveAs from "file-saver";
 import JSZip from "jszip";
-import { StudyMaterialResult, PresentationData, SummaryData, ExamData, MindmapData } from "@/types";
+import { StudyMaterialResult, PresentationData, SummaryData, ExamData, SlideData } from "@/types";
+import { getSlideImageUrl } from "@/lib/gemini";
 
-// 1. PPTX 다운로드
+// 1. PPTX 다운로드 (NotebookLM 비주얼 스타일 with 고화질 이미지 & 카드 레이아웃)
 export async function downloadPptx(presentation: PresentationData, filenamePrefix = "공부방_발표자료") {
   const pptx = new pptxgen();
   pptx.layout = "LAYOUT_16x9";
@@ -12,11 +13,11 @@ export async function downloadPptx(presentation: PresentationData, filenamePrefi
   pptx.company = "My Study Room";
   pptx.title = presentation.title;
 
-  // 표지 슬라이드
+  // 1) 표지 슬라이드
   const titleSlide = pptx.addSlide();
-  titleSlide.background = { color: "FDFBF7" }; // 웜 화이트
-  
-  // 장식용 상단 우드 바
+  titleSlide.background = { color: "FDFBF7" }; // 웜 화이트 배경
+
+  // 상단 감성 우드 바
   titleSlide.addShape(pptx.ShapeType.rect, {
     x: 0,
     y: 0,
@@ -26,52 +27,82 @@ export async function downloadPptx(presentation: PresentationData, filenamePrefi
     line: { color: "D7C4B7" }
   });
 
+  // 표지 뱃지
+  titleSlide.addText("AI 맞춤 학습 프레젠테이션", {
+    x: 1.0,
+    y: 1.6,
+    w: 5.0,
+    h: 0.4,
+    fontSize: 12,
+    bold: true,
+    color: "E07A5F",
+    fontFace: "Malgun Gothic"
+  });
+
+  // 메인 제목
   titleSlide.addText(presentation.title, {
     x: 1.0,
     y: 2.2,
-    w: 11.3,
-    h: 1.5,
-    fontSize: 34,
+    w: 6.5,
+    h: 1.8,
+    fontSize: 32,
     bold: true,
     color: "3D3A37",
     fontFace: "Malgun Gothic",
     align: "left"
   });
 
+  // 부제목
   if (presentation.subtitle) {
     titleSlide.addText(presentation.subtitle, {
       x: 1.0,
-      y: 3.8,
-      w: 11.3,
+      y: 4.2,
+      w: 6.5,
       h: 0.8,
-      fontSize: 18,
+      fontSize: 16,
       color: "7D756D",
       fontFace: "Malgun Gothic",
       align: "left"
     });
   }
 
+  // 표지 우측 대표 비주얼 이미지
+  try {
+    const coverImg = getSlideImageUrl(presentation.coverImageKeyword || presentation.title, 0);
+    titleSlide.addImage({
+      path: coverImg,
+      x: 8.0,
+      y: 1.5,
+      w: 4.8,
+      h: 4.8,
+      sizing: { type: "cover", w: 4.8, h: 4.8 }
+    });
+  } catch (err) {
+    console.warn("Cover image load fallback", err);
+  }
+
+  // 표지 푸터
   titleSlide.addText("생성: <내 공부방> AI 학습 튜터", {
     x: 1.0,
-    y: 6.2,
+    y: 6.3,
     w: 5.0,
-    h: 0.5,
-    fontSize: 12,
+    h: 0.4,
+    fontSize: 11,
     color: "8C6D58",
     fontFace: "Malgun Gothic"
   });
 
-  // 본문 슬라이드들
-  presentation.slides.forEach((slide) => {
+  // 2) 본문 슬라이드들
+  presentation.slides.forEach((slide, idx) => {
     const s = pptx.addSlide();
     s.background = { color: "FFFFFF" };
 
-    // 상단 헤더
+    // 상단 네비게이션 바
     s.addShape(pptx.ShapeType.rect, {
       x: 0,
       y: 0,
       w: "100%",
-      h: 1.0,
+      h: 0.9,
       fill: { color: "F3EFEA" },
       line: { color: "EADBCE" }
     });
@@ -79,9 +110,9 @@ export async function downloadPptx(presentation: PresentationData, filenamePrefi
     // 슬라이드 번호 뱃지
     s.addText(`Slide ${slide.slideNumber}`, {
       x: 0.8,
-      y: 0.25,
+      y: 0.22,
       w: 1.5,
-      h: 0.5,
+      h: 0.45,
       fontSize: 11,
       bold: true,
       color: "E07A5F",
@@ -91,43 +122,83 @@ export async function downloadPptx(presentation: PresentationData, filenamePrefi
     // 슬라이드 제목
     s.addText(slide.title, {
       x: 2.2,
-      y: 0.2,
+      y: 0.18,
       w: 10.0,
-      h: 0.6,
-      fontSize: 20,
+      h: 0.55,
+      fontSize: 18,
       bold: true,
       color: "3D3A37",
       fontFace: "Malgun Gothic"
     });
 
-    // 본문 불릿 포인트
+    // 좌측 본문 불릿 포인트 리스트 (x: 0.8, w: 6.8)
     const bullets = slide.bulletPoints.map((bp) => ({
       text: bp,
       options: {
-        fontSize: 15,
-        color: "4A4643",
+        fontSize: 14,
+        color: "3D3A37",
         bullet: true,
-        spaceAfter: 12,
+        spaceAfter: 10,
         fontFace: "Malgun Gothic"
       }
     }));
 
     s.addText(bullets, {
-      x: 0.9,
-      y: 1.5,
-      w: 11.5,
-      h: 4.5,
+      x: 0.8,
+      y: 1.4,
+      w: 6.8,
+      h: 3.6,
       align: "left",
       valign: "top"
     });
 
-    // 발표자 노트 (스크립트)
+    // 좌측 하단: Key Takeaway 박스
+    if (slide.keyTakeaway) {
+      s.addShape(pptx.ShapeType.rect, {
+        x: 0.8,
+        y: 5.2,
+        w: 6.8,
+        h: 1.4,
+        fill: { color: "FFF3E8" },
+        line: { color: "FFD8BF", width: 1 }
+      });
+
+      s.addText(`💡 핵심 요점: ${slide.keyTakeaway}`, {
+        x: 1.0,
+        y: 5.3,
+        w: 6.4,
+        h: 1.2,
+        fontSize: 12,
+        bold: true,
+        color: "D95A2B",
+        fontFace: "Malgun Gothic",
+        align: "left",
+        valign: "middle"
+      });
+    }
+
+    // 우측: 슬라이드 주제별 고화질 비주얼 이미지 삽입 (x: 8.0, w: 4.6, h: 4.8)
+    try {
+      const imgUrl = slide.imageUrl || getSlideImageUrl(slide.imageKeyword || slide.title, idx);
+      s.addImage({
+        path: imgUrl,
+        x: 8.0,
+        y: 1.4,
+        w: 4.6,
+        h: 4.8,
+        sizing: { type: "cover", w: 4.6, h: 4.8 }
+      });
+    } catch (err) {
+      console.warn("Slide image insert fallback", err);
+    }
+
+    // 발표자 노트 (구어체 대본)
     if (slide.script) {
-      s.addNotes(`[발표 스크립트]\n${slide.script}`);
+      s.addNotes(`[발표자 추천 스크립트]\n${slide.script}`);
     }
   });
 
-  const blob = await pptx.write({ outputType: "blob" }) as Blob;
+  const blob = (await pptx.write({ outputType: "blob" })) as Blob;
   saveAs(blob, `${filenamePrefix}_${presentation.title.slice(0, 15).replace(/[^\w가-힣]/g, "_")}.pptx`);
 }
 
@@ -232,8 +303,6 @@ export async function downloadExamDocx(exam: ExamData, filenamePrefix = "공부�
             alignment: AlignmentType.CENTER,
             spacing: { after: 400 }
           }),
-
-          // 문제 영역
           new Paragraph({
             text: "【 1부 : 객관식 문제 】",
             heading: HeadingLevel.HEADING_2,
@@ -255,7 +324,6 @@ export async function downloadExamDocx(exam: ExamData, filenamePrefix = "공부�
                 })
             )
           ]),
-
           new Paragraph({
             text: "【 2부 : 단답형 / 서술형 주관식 】",
             heading: HeadingLevel.HEADING_2,
@@ -274,8 +342,6 @@ export async function downloadExamDocx(exam: ExamData, filenamePrefix = "공부�
               spacing: { after: 120 }
             })
           ]),
-
-          // 정답 및 해설 영역 (페이지 구분 느낌)
           new Paragraph({
             text: "=========================================",
             alignment: AlignmentType.CENTER,
@@ -333,23 +399,23 @@ export async function downloadAllZip(material: StudyMaterialResult) {
   const zip = new JSZip();
   const baseName = material.title.slice(0, 20).replace(/[^\w가-힣]/g, "_");
 
-  // 1) 요약본 (Markdown & Text)
+  // 1) 요약본
   let summaryMd = `# ${material.summary.title}\n\n`;
   summaryMd += `## 1. 핵심 개요\n${material.summary.overview}\n\n`;
   summaryMd += `## 2. 핵심 요약 포인트\n`;
-  material.summary.keyPoints.forEach(kp => summaryMd += `- ${kp}\n`);
+  material.summary.keyPoints.forEach((kp) => (summaryMd += `- ${kp}\n`));
   summaryMd += `\n## 3. 단원별 세부 내용\n`;
-  material.summary.sections.forEach(sec => {
+  material.summary.sections.forEach((sec) => {
     summaryMd += `### ${sec.title}\n${sec.content}\n\n`;
     if (sec.keyPoints) {
-      sec.keyPoints.forEach(p => summaryMd += `  - ${p}\n`);
+      sec.keyPoints.forEach((p) => (summaryMd += `  - ${p}\n`));
     }
   });
   summaryMd += `\n## 4. 핵심 용어 사전\n`;
-  material.summary.keywords.forEach(kw => summaryMd += `- **${kw.word}**: ${kw.definition}\n`);
+  material.summary.keywords.forEach((kw) => (summaryMd += `- **${kw.word}**: ${kw.definition}\n`));
   zip.file(`1_요약정리_${baseName}.md`, summaryMd);
 
-  // 2) PPTX 파일 생성 및 압축
+  // 2) PPTX 파일 생성
   const pptx = new pptxgen();
   pptx.layout = "LAYOUT_16x9";
   pptx.title = material.presentation.title;
@@ -358,31 +424,38 @@ export async function downloadAllZip(material: StudyMaterialResult) {
   if (material.presentation.subtitle) {
     tSlide.addText(material.presentation.subtitle, { x: 1, y: 3.5, w: 11, fontSize: 18, color: "666666" });
   }
-  material.presentation.slides.forEach(slide => {
+  material.presentation.slides.forEach((slide, idx) => {
     const s = pptx.addSlide();
-    s.addText(`Slide ${slide.slideNumber}: ${slide.title}`, { x: 0.8, y: 0.5, w: 11, fontSize: 20, bold: true });
-    s.addText(slide.bulletPoints.map(bp => ({ text: bp, options: { bullet: true, spaceAfter: 10 } })), { x: 0.8, y: 1.5, w: 11, h: 4 });
+    s.addText(`Slide ${slide.slideNumber}: ${slide.title}`, { x: 0.8, y: 0.4, w: 11, fontSize: 18, bold: true });
+    s.addText(
+      slide.bulletPoints.map((bp) => ({ text: bp, options: { bullet: true, spaceAfter: 8 } })),
+      { x: 0.8, y: 1.2, w: 6.8, h: 4.5 }
+    );
+    try {
+      const imgUrl = slide.imageUrl || getSlideImageUrl(slide.imageKeyword || slide.title, idx);
+      s.addImage({ path: imgUrl, x: 8.0, y: 1.2, w: 4.6, h: 4.8, sizing: { type: "cover", w: 4.6, h: 4.8 } });
+    } catch (e) {}
     if (slide.script) s.addNotes(slide.script);
   });
-  const pptxBlob = await pptx.write({ outputType: "blob" }) as Blob;
-  zip.file(`2_발표슬라이드_${baseName}.pptx`, pptxBlob);
+  const pptxBlob = (await pptx.write({ outputType: "blob" })) as Blob;
+  zip.file(`2_비주얼_발표슬라이드_${baseName}.pptx`, pptxBlob);
 
   // 3) 시험지 텍스트
   let examTxt = `[ ${material.exam.title} ]\n\n`;
   examTxt += `【 1부 : 객관식 문제 】\n`;
-  material.exam.multipleChoice.forEach(mc => {
+  material.exam.multipleChoice.forEach((mc) => {
     examTxt += `\n[Q${mc.id}] ${mc.question}\n`;
-    mc.options.forEach((opt, idx) => examTxt += `  (${idx+1}) ${opt}\n`);
+    mc.options.forEach((opt, idx) => (examTxt += `  (${idx + 1}) ${opt}\n`));
   });
   examTxt += `\n\n【 2부 : 주관식 문제 】\n`;
-  material.exam.shortAnswer.forEach(sa => {
+  material.exam.shortAnswer.forEach((sa) => {
     examTxt += `\n[서술형 ${sa.id}] ${sa.question}\n`;
   });
   examTxt += `\n\n=========================================\n【 정답 및 해설 】\n`;
-  material.exam.multipleChoice.forEach(mc => {
-    examTxt += `\n[Q${mc.id}] 정답: (${mc.answerIndex+1}) ${mc.options[mc.answerIndex]}\n해설: ${mc.explanation}\n`;
+  material.exam.multipleChoice.forEach((mc) => {
+    examTxt += `\n[Q${mc.id}] 정답: (${mc.answerIndex + 1}) ${mc.options[mc.answerIndex]}\n해설: ${mc.explanation}\n`;
   });
-  material.exam.shortAnswer.forEach(sa => {
+  material.exam.shortAnswer.forEach((sa) => {
     examTxt += `\n[서술형 ${sa.id}] 모범답안: ${sa.answer}\n해설: ${sa.explanation}\n`;
   });
   zip.file(`3_예상기출문제_${baseName}.txt`, examTxt);

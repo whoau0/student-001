@@ -22,12 +22,18 @@ export interface SlideData {
   title: string;
   bulletPoints: string[];
   script: string;
+  imageKeyword?: string;      // 슬라이드 주제에 맞는 영어 이미지 검색 키워드 (예: 'accounting data analysis', 'brain study education')
+  imageUrl?: string;          // 고해상도 학습 이미지 URL
+  badge?: string;             // 슬라이드 소제목/태그 (예: '핵심 개념', '실전 사례', '프로세스')
+  keyTakeaway?: string;       // 슬라이드 한 줄 핵심 결론
+  layout?: 'split-image' | 'card-grid' | 'hero' | 'takeaway';
 }
 
 export interface PresentationData {
   title: string;
   subtitle: string;
   authorNote?: string;
+  coverImageKeyword?: string;
   slides: SlideData[];
 }
 

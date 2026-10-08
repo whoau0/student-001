@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { SYSTEM_PROMPT } from "@/lib/gemini";
+import { SYSTEM_PROMPT, getSlideImageUrl } from "@/lib/gemini";
 import { StudyMaterialResult } from "@/types";
 
 export const maxDuration = 60; // 60 seconds timeout on Vercel
@@ -161,6 +161,23 @@ ${text ? `상세 메모/자막: ${text}` : `강의 주제 [${ytInfo.title}]의 �
       );
     }
 
+    // Ensure presentation slides have valid image URLs and visual properties
+    const enrichedSlides = (successfulResult.presentation?.slides || []).map((slide: any, idx: number) => {
+      const imgUrl = slide.imageUrl || getSlideImageUrl(slide.imageKeyword || slide.title, idx);
+      return {
+        ...slide,
+        imageUrl: imgUrl,
+        badge: slide.badge || `Part ${idx + 1}`,
+        keyTakeaway: slide.keyTakeaway || (slide.bulletPoints && slide.bulletPoints[0]) || "",
+        layout: slide.layout || (idx % 2 === 0 ? "split-image" : "card-grid"),
+      };
+    });
+
+    const enrichedPresentation = {
+      ...successfulResult.presentation,
+      slides: enrichedSlides,
+    };
+
     const finalResponse: StudyMaterialResult = {
       title: successfulResult.summary?.title || subjectTitle,
       sourceType: sourceType || "text",
@@ -168,7 +185,7 @@ ${text ? `상세 메모/자막: ${text}` : `강의 주제 [${ytInfo.title}]의 �
       modelUsed: usedModelName,
       generatedAt: new Date().toISOString(),
       summary: successfulResult.summary,
-      presentation: successfulResult.presentation,
+      presentation: enrichedPresentation,
       exam: successfulResult.exam,
       mindmap: successfulResult.mindmap,
     };
