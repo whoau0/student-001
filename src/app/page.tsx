@@ -33,9 +33,18 @@ export default function Home() {
         }),
       });
 
-      const data = await res.json();
+      const responseText = await res.text();
+      let data: any;
+      try {
+        data = JSON.parse(responseText);
+      } catch (parseErr) {
+        throw new Error(
+          `서버 응답 오류 (${res.status}): 요청 시간이 초과되었거나 서버에 일시적 장애가 발생했습니다.`
+        );
+      }
+
       if (!res.ok) {
-        throw new Error(data.error || "학습 자료를 불러오지 못했습니다.");
+        throw new Error(data.details || data.error || `생성 실패 (코드 ${res.status})`);
       }
 
       setMaterial(data);
@@ -67,9 +76,18 @@ export default function Home() {
         }),
       });
 
-      const data = await res.json();
+      const responseText = await res.text();
+      let data: any;
+      try {
+        data = JSON.parse(responseText);
+      } catch (parseErr) {
+        throw new Error(
+          `서버 응답 오류 (${res.status}): 요청 시간이 초과되었거나 서버에 일시적 장애가 발생했습니다.`
+        );
+      }
+
       if (!res.ok) {
-        throw new Error(data.error || "학습 자료를 불러오지 못했습니다.");
+        throw new Error(data.details || data.error || `생성 실패 (코드 ${res.status})`);
       }
 
       setMaterial(data);
@@ -119,7 +137,7 @@ export default function Home() {
               <h4 className="font-bold text-sm">학습 자료를 불러오지 못했습니다</h4>
               <p className="text-xs text-rose-700 mt-0.5">{errorMessage}</p>
               <p className="text-[11px] text-rose-600/80 mt-1">
-                .env.local에 `GEMINI_API_KEY`가 올바르게 입력되어 있는지 확인해 주세요.
+                .env.local 파일의 `GEMINI_API_KEY` 값과 네트워크 연결 상태를 확인해 주세요.
               </p>
             </div>
           </div>

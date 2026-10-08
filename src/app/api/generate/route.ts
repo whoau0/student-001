@@ -3,6 +3,9 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { SYSTEM_PROMPT } from "@/lib/gemini";
 import { StudyMaterialResult } from "@/types";
 
+export const maxDuration = 60; // 60 seconds timeout on Vercel
+export const dynamic = "force-dynamic";
+
 // YouTube Video ID Extractor
 function extractYouTubeId(url: string): string | null {
   const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
@@ -10,22 +13,31 @@ function extractYouTubeId(url: string): string | null {
   return match && match[2].length === 11 ? match[2] : null;
 }
 
-// Extract Video metadata or transcripts
+// Extract Video metadata via YouTube oEmbed
 async function fetchYouTubeInfo(url: string) {
   try {
     const videoId = extractYouTubeId(url);
     if (!videoId) return null;
 
-    // Fetch video title via oembed
-    const oembedRes = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4000); // 4s timeout
+
+    const oembedRes = await fetch(
+      `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`,
+      { signal: controller.signal }
+    );
+    clearTimeout(timeoutId);
+
     let title = "유튜브 학습 영상";
+    let authorName = "";
     if (oembedRes.ok) {
       const data = await oembedRes.json();
       title = data.title || title;
+      authorName = data.author_name || "";
     }
-    return { videoId, title };
+    return { videoId, title, authorName };
   } catch (err) {
-    console.error("Failed to fetch youtube oembed", err);
+    console.warn("Failed to fetch youtube oembed or timed out:", err);
     return null;
   }
 }
@@ -36,9 +48,9 @@ export async function POST(req: NextRequest) {
     const { sourceType, youtubeUrl, text, fileName } = body;
 
     const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
+    if (!apiKey || apiKey.trim() === "") {
       return NextResponse.json(
-        { error: "GEMINI_API_KEY가 설정되지 않았습니다. .env.local에 API 키를 입력해 주세요." },
+        { error: "GEMINI_API_KEY가 설정되지 않았습니다. .env.local에 유효한 Gemini API 키를 입력해 주세요." },
         { status: 500 }
       );
     }
@@ -50,8 +62,15 @@ export async function POST(req: NextRequest) {
       const ytInfo = await fetchYouTubeInfo(youtubeUrl);
       if (ytInfo) {
         subjectTitle = ytInfo.title;
+        studyContent = `[유튜브 학습 강의 소스]
+영상 제목: ${ytInfo.title}
+채널명/강사: ${ytInfo.authorName || "온라인 강의"}
+영상 링크: ${youtubeUrl}
+${text ? `상세 메모/자막: ${text}` : `강의 주제 [${ytInfo.title}]의 핵심 교육 과정, 핵심 개념, 시험 예상 문제, 요약 정리본, 슬라이드 구성안을 작성해 주세요.`}`;
+      } else {
+        subjectTitle = "유튜브 강의 요약";
+        studyContent = `[유튜브 학습 영상]: ${youtubeUrl}\n${text || "이 영상의 주제에 관한 핵심 정리와 시험 예상 문제를 작성해 주세요."}`;
       }
-      studyContent = `[유튜브 학습 소스]\n영상 링크: ${youtubeUrl}\n영상 제목: ${subjectTitle}\n제공된 상세 내용/자막/요약 텍스트:\n${text || "유튜브 영상의 핵심 개념과 주요 내용을 바탕으로 강의 요약 및 시험문제를 작성해 주세요."}`;
     } else {
       if (!text || text.trim().length === 0) {
         return NextResponse.json(
@@ -59,20 +78,21 @@ export async function POST(req: NextRequest) {
           { status: 400 }
         );
       }
-      studyContent = `[문서/텍스트 학습 소스]\n제목/파일명: ${subjectTitle}\n\n[본문 내용]:\n${text}`;
+      studyContent = `[문서/교재 학습 소스]\n제목/파일명: ${subjectTitle}\n\n[본문 내용]:\n${text}`;
     }
 
     const genAI = new GoogleGenerativeAI(apiKey);
 
-    // Fallback model list as specified in PRD
-    // 1st: gemini-3.8-flash (or available standard flash model)
-    // 2nd: gemini-3.5-flash-lite (or gemini-1.5-flash fallback)
-    // 3rd: gemini-1.5-flash / gemini-2.5-flash
+    // AI Model Candidates:
+    // Try fastest, officially available Gemini models first to prevent 504 Gateway Timeout,
+    // with fallback support.
     const modelSequence = [
-      "gemini-3.8-flash",
-      "gemini-3.5-flash-lite",
+      "gemini-1.5-flash",
+      "gemini-2.0-flash",
       "gemini-2.5-flash",
-      "gemini-1.5-flash"
+      "gemini-1.5-pro",
+      "gemini-3.8-flash",
+      "gemini-3.5-flash-lite"
     ];
 
     let lastError: any = null;
@@ -92,7 +112,13 @@ export async function POST(req: NextRequest) {
           },
         });
 
-        const result = await model.generateContent(promptText);
+        // Add 25 second timeout per model call to prevent server 504
+        const generatePromise = model.generateContent(promptText);
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error(`Timeout on model ${modelName}`)), 25000)
+        );
+
+        const result: any = await Promise.race([generatePromise, timeoutPromise]);
         const responseText = result.response.text();
 
         if (!responseText || responseText.trim().length === 0) {
@@ -115,11 +141,12 @@ export async function POST(req: NextRequest) {
 
         successfulResult = parsedData;
         usedModelName = modelName;
+        console.log(`[Gemini Route] Successfully generated with model: ${modelName}`);
         break; // Success! Exit fallback loop
       } catch (err: any) {
         console.warn(`[Gemini Route] Model ${modelName} failed:`, err?.message || err);
         lastError = err;
-        // Continue to fallback model
+        // Continue to fallback model immediately
       }
     }
 
@@ -128,7 +155,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           error: "학습 자료를 불러오지 못했습니다.",
-          details: lastError?.message || "AI 모델 호출 실패"
+          details: lastError?.message || "AI 모델 호출 실패. API 키나 네트워크 상태를 확인해 주세요."
         },
         { status: 500 }
       );
@@ -148,11 +175,11 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(finalResponse);
   } catch (error: any) {
-    console.error("[Gemini Route Error]", error);
+    console.error("[Gemini Route Fatal Error]", error);
     return NextResponse.json(
       {
         error: "학습 자료를 불러오지 못했습니다.",
-        details: error?.message || "서버 내부 오류"
+        details: error?.message || "서버 내부 처리 오류"
       },
       { status: 500 }
     );
