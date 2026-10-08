@@ -161,20 +161,47 @@ ${text ? `상세 메모/자막: ${text}` : `강의 주제 [${ytInfo.title}]의 �
       );
     }
 
-    // Ensure presentation slides have valid image URLs and visual properties
+    // Ensure presentation slides have valid image URLs and visual properties (type-safe)
     const enrichedSlides = (successfulResult.presentation?.slides || []).map((slide: any, idx: number) => {
-      const imgUrl = slide.imageUrl || getSlideImageUrl(slide.imageKeyword || slide.title, idx);
+      const titleStr = typeof slide.title === "string" ? slide.title : String(slide.title || `슬라이드 ${idx + 1}`);
+      const keywordStr = typeof slide.imageKeyword === "string" ? slide.imageKeyword : Array.isArray(slide.imageKeyword) ? slide.imageKeyword.join(" ") : titleStr;
+      const imgUrl = typeof slide.imageUrl === "string" && slide.imageUrl.length > 0 
+        ? slide.imageUrl 
+        : getSlideImageUrl(keywordStr, idx);
+
+      let cleanBullets: string[] = [];
+      if (Array.isArray(slide.bulletPoints)) {
+        cleanBullets = slide.bulletPoints.map((bp: any) =>
+          typeof bp === "string" ? bp : typeof bp === "object" ? Object.values(bp).join(" ") : String(bp)
+        );
+      } else if (typeof slide.bulletPoints === "string") {
+        cleanBullets = [slide.bulletPoints];
+      }
+
+      const takeawayStr = typeof slide.keyTakeaway === "string" 
+        ? slide.keyTakeaway 
+        : (cleanBullets[0] || "");
+
+      const badgeStr = typeof slide.badge === "string" ? slide.badge : `Part ${idx + 1}`;
+      const scriptStr = typeof slide.script === "string" ? slide.script : "";
+
       return {
-        ...slide,
+        slideNumber: typeof slide.slideNumber === "number" ? slide.slideNumber : idx + 1,
+        title: titleStr,
+        bulletPoints: cleanBullets.length > 0 ? cleanBullets : ["핵심 요점 설명"],
+        keyTakeaway: takeawayStr,
+        badge: badgeStr,
+        imageKeyword: keywordStr,
         imageUrl: imgUrl,
-        badge: slide.badge || `Part ${idx + 1}`,
-        keyTakeaway: slide.keyTakeaway || (slide.bulletPoints && slide.bulletPoints[0]) || "",
         layout: slide.layout || (idx % 2 === 0 ? "split-image" : "card-grid"),
+        script: scriptStr,
       };
     });
 
     const enrichedPresentation = {
       ...successfulResult.presentation,
+      title: typeof successfulResult.presentation?.title === "string" ? successfulResult.presentation.title : subjectTitle,
+      subtitle: typeof successfulResult.presentation?.subtitle === "string" ? successfulResult.presentation.subtitle : "",
       slides: enrichedSlides,
     };
 
